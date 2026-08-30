@@ -1,0 +1,14 @@
+# Secrets
+.env
+
+# Environments
+.venv/
+.uvpython/
+__pycache__/
+*.py[cod]
+
+# Generated artefacts
+chroma_store/
+vector_store/
+logs/
+.streamlit/secrets.toml

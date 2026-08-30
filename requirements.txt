@@ -1,0 +1,30 @@
+# Core RAG stack
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langchain-groq>=0.1.9
+langchain-huggingface>=0.0.3
+langchain-text-splitters>=0.2.0
+
+# Vector store + local embeddings.
+# chromadb is pinned below 0.6: from 1.0 onwards it imports the OpenTelemetry
+# gRPC exporter at package import, which drags in grpcio's unsigned native
+# extension. Windows Smart App Control refuses to load that, making chromadb
+# unimportable on locked-down machines. 0.5.x has no such dependency.
+chromadb>=0.5.0,<0.6.0
+langchain-chroma>=0.1.4,<0.2.0
+# chromadb instantiates its default ONNX embedding function at class-definition
+# time, so onnxruntime must be importable even though we never use it.
+onnxruntime>=1.17.0
+sentence-transformers>=3.0.0
+
+# Ingestion
+pypdf>=4.2.0
+
+# UI + config
+streamlit>=1.37.0
+python-dotenv>=1.0.0
+
+# Windows only: modern Visual C++ runtime DLLs for torch.
+# See setup_windows_runtime.py — run it once after installing.
+msvc-runtime>=14.40; sys_platform == "win32"
