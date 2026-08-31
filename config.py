@@ -31,6 +31,7 @@ DATA_DIR = _resolve_data_dir()
 FAQ_CSV = DATA_DIR / "faq.csv"
 TICKETS_DB = DATA_DIR / "tickets.db"
 GUIDE_PDF = DATA_DIR / "telecom_guide.pdf"
+PLANS_JSON = DATA_DIR / "plans.json"
 
 CHROMA_DIR = PROJECT_ROOT / "chroma_store"
 # Used only when ChromaDB cannot be imported on this machine (see vectorstore.py).
@@ -43,18 +44,31 @@ INTERACTION_LOG = LOG_DIR / "interactions.jsonl"
 FAQ_COLLECTION = "faq"
 TICKETS_COLLECTION = "tickets"
 GUIDES_COLLECTION = "guides"
+PLANS_COLLECTION = "plans"
 
 # Human-readable source labels injected into the prompt context (FR-08).
 SOURCE_LABELS = {
     FAQ_COLLECTION: "FAQ",
     TICKETS_COLLECTION: "TICKETS",
     GUIDES_COLLECTION: "GUIDES",
+    PLANS_COLLECTION: "PLANS",
 }
 
 # --- Retrieval (FR-07, FR-09) -------------------------------------------
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-TOP_K = int(os.getenv("TOP_K", "3"))  # per collection -> 9 documents total
+TOP_K = int(os.getenv("TOP_K", "3"))  # per collection
+
+# Plans is the one collection where a correct answer usually means comparing
+# several documents against each other — "the cheapest unlimited plan" is only
+# cheapest relative to the rest of the lineup. Three plan documents out of
+# seventeen is not enough to make that comparison safely, so it retrieves more.
+COLLECTION_TOP_K = {PLANS_COLLECTION: 6}
+
+
+def top_k_for(collection: str) -> int:
+    """Documents to retrieve from one collection (TOP_K unless overridden)."""
+    return COLLECTION_TOP_K.get(collection, TOP_K)
 
 # --- Guide chunking (FR-16) ---------------------------------------------
 
@@ -71,17 +85,21 @@ REASONING_EFFORT = os.getenv("REASONING_EFFORT", "none")
 # --- UI ------------------------------------------------------------------
 
 APP_TITLE = "Telecom Care Assistant"
-APP_TAGLINE = "Grounded answers from our FAQ, resolved tickets and technical guides."
+APP_TAGLINE = (
+    "Grounded answers from our plan catalog, FAQ, resolved tickets and technical guides."
+)
 
 SAMPLE_QUESTIONS = [
+    "What's your cheapest unlimited plan?",
+    "Do you have a family plan?",
+    "I'm going to Europe for about a week. What are my roaming options?",
+    "Is there a discount for students?",
+    "What's the difference between the International Calling Pack and a roaming pass?",
     "Why is my mobile internet so slow?",
     "Why is my bill higher than usual?",
-    "How do I activate international roaming before I travel?",
     "My eSIM activation keeps failing — what should I do?",
     "My calls keep dropping. What should I do?",
-    "My phone says SIM not detected after a restart.",
     "How do I set up autopay?",
-    "How long does number porting take?",
 ]
 
 ESCALATION_HINT = "call 611 or use the MyTelecom app"

@@ -14,7 +14,7 @@ import uuid
 
 import streamlit as st
 
-from config import APP_TAGLINE, APP_TITLE, LLM_MODEL, SAMPLE_QUESTIONS, TOP_K
+from config import APP_TAGLINE, APP_TITLE, LLM_MODEL, SAMPLE_QUESTIONS, top_k_for
 from interaction_log import log_answer, log_feedback
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📡", layout="centered")
@@ -78,8 +78,9 @@ def _render_sidebar(counts: dict[str, int]) -> None:
             st.error("No documents indexed. Run `python ingest_all.py` first.")
         else:
             for name, n in counts.items():
-                st.caption(f"**{name}** — {n} documents")
-            st.caption(f"Top {TOP_K} retrieved per source · {TOP_K * len(counts)} per answer")
+                st.caption(f"**{name}** — {n} documents (top {top_k_for(name)} retrieved)")
+            per_answer = sum(top_k_for(name) for name in counts)
+            st.caption(f"Up to {per_answer} documents retrieved per answer")
 
         st.divider()
         from vectorstore import backend, backend_note
@@ -96,14 +97,39 @@ def _render_sidebar(counts: dict[str, int]) -> None:
 # --- Message rendering ---------------------------------------------------
 
 
+def _md(text: str) -> str:
+    """Escape dollar signs before rendering markdown.
+
+    Streamlit reads `$...$` as LaTeX, so an answer containing two prices —
+    "$10 per day ... would cost $70" — renders as "10 per day ... would cost"
+    with the prices swallowed into an empty math span. Escaping every `$`
+    leaves the answer as written. This only started to matter once the plan
+    catalog put prices in the answers.
+    """
+    return text.replace("$", r"\$")
+
+
+def _stream_for_display(stream, sink: list):
+    """Yield display-escaped chunks while collecting the raw text in `sink`.
+
+    The raw text is what gets stored in history and written to the log; only
+    what Streamlit renders is escaped. `$` is a single character, so escaping
+    chunk by chunk cannot break across a chunk boundary.
+    """
+    for chunk in stream:
+        sink.append(chunk)
+        yield _md(chunk)
+
+
+
 def _render_sources(message: dict) -> None:
     citations = message.get("citations") or []
     if not citations:
         return
     with st.expander(f"Sources ({len(citations)})"):
         for label, citation, snippet in citations:
-            st.markdown(f"**{label}** · {citation}")
-            st.caption(snippet)
+            st.markdown(f"**{label}** · {_md(citation)}")
+            st.caption(_md(snippet))
 
 
 def _render_feedback(message: dict, index: int) -> None:
@@ -139,7 +165,7 @@ def _render_feedback(message: dict, index: int) -> None:
 def _render_history() -> None:
     for index, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            st.markdown(_md(message["content"]))
             if message["role"] == "assistant":
                 _render_sources(message)
                 _render_feedback(message, index)
@@ -153,14 +179,16 @@ def _answer(question: str) -> None:
 
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
-        st.markdown(question)
+        st.markdown(_md(question))
 
     with st.chat_message("assistant"):
         started = time.perf_counter()
         try:
             with st.spinner("Searching our knowledge base…"):
                 docs, stream = answer_stream(question)
-            text = st.write_stream(stream)
+            chunks: list[str] = []
+            st.write_stream(_stream_for_display(stream, chunks))
+            text = "".join(chunks)
         except MissingAPIKey as exc:
             st.error(str(exc))
             st.session_state.messages.append(
@@ -216,9 +244,10 @@ def main() -> None:
 
     if not st.session_state.messages:
         st.info(
-            "Ask about slow data, a confusing charge, SIM or eSIM activation, roaming, "
-            "call quality, or the app. I answer from our published support knowledge — "
-            "I can't see your account details."
+            "Ask about our plans and pricing, roaming passes, slow data, a confusing "
+            "charge, SIM or eSIM activation, call quality, or the app. I answer from "
+            "our published plan catalog and support knowledge — I can't see your "
+            "account details."
         )
 
     _render_history()

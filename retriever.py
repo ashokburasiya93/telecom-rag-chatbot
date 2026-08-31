@@ -17,13 +17,14 @@ from langchain_core.documents import Document
 from config import (
     FAQ_COLLECTION,
     GUIDES_COLLECTION,
+    PLANS_COLLECTION,
     SOURCE_LABELS,
     TICKETS_COLLECTION,
-    TOP_K,
+    top_k_for,
 )
 from vectorstore import get_collection
 
-COLLECTIONS = (FAQ_COLLECTION, TICKETS_COLLECTION, GUIDES_COLLECTION)
+COLLECTIONS = (FAQ_COLLECTION, TICKETS_COLLECTION, GUIDES_COLLECTION, PLANS_COLLECTION)
 
 
 @dataclass(frozen=True)
@@ -58,10 +59,17 @@ def _search(collection: str, question: str, k: int) -> list[RetrievedDoc]:
     return [RetrievedDoc(collection=collection, document=doc) for doc in hits]
 
 
-def retrieve(question: str, k: int = TOP_K) -> list[RetrievedDoc]:
-    """Fetch the top-k documents from every collection, in parallel."""
+def retrieve(question: str, k: int | None = None) -> list[RetrievedDoc]:
+    """Fetch the top documents from every collection, in parallel.
+
+    `k` overrides the per-collection default for every collection; left alone,
+    each collection uses `top_k_for()`.
+    """
     with ThreadPoolExecutor(max_workers=len(COLLECTIONS)) as pool:
-        futures = [pool.submit(_search, name, question, k) for name in COLLECTIONS]
+        futures = [
+            pool.submit(_search, name, question, k if k is not None else top_k_for(name))
+            for name in COLLECTIONS
+        ]
         results = [future.result() for future in futures]
 
     # Keep collection order (FAQ first) so the prompt reads consistently and the
