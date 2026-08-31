@@ -1,0 +1,93 @@
+EXERCISE - ADD A NEW KNOWLEDGE SOURCE TO THE RAG SYSTEM
+
+THE SCENARIO
+
+You shipped the first prototype of the NovaCell support assistant and put it in front of
+real users. The feedback was mostly positive - but a clear pattern of complaints came in:
+whenever customers asked about plans and pricing ("What's your cheapest unlimited plan?",
+"Do you have a family plan?", "How much is roaming for a week in Europe?"), the bot gave
+wrong, vague, or made-up answers.
+
+After digging in, the team found the root cause: the bot's RAG knowledge system never had
+any plan or pricing data in it. The FAQ, past tickets, and PDF guides simply don't cover the
+current plan lineup, so the bot had nothing accurate to retrieve - and it showed.
+
+Support operations has now handed you the official, up-to-date plan catalog as a JSON file:
+data/plans.json. Your job is to get this knowledge into the system so the bot can answer
+plan and pricing questions correctly.
+
+
+YOUR TASK
+
+Integrate data/plans.json into the existing RAG pipeline as a new knowledge source, so that
+plan and pricing questions are answered using this data.
+
+This follows the same pattern the system already uses for its three existing sources (FAQ,
+tickets, guides): load the data, turn each item into a document, embed it, store it in its
+own collection, and make the retriever search it alongside the others.
+
+
+SAMPLE QUESTIONS AND EXPECTED ANSWERS
+
+Use these to test your work. Wording will vary - what matters is that the answer is correct
+and grounded in data/plans.json (or correctly handled when it is out of scope).
+
+PLAN / PRICING QUESTIONS (should work AFTER your change):
+
+Q: "What's your cheapest unlimited plan?"
+A: Prepaid Unlimited at $45/month - unlimited 5G data, no contract. (A strong answer may
+   note that Student Unlimited at $30 and the 55+ Plan are cheaper but require eligibility.)
+
+Q: "Do you have a family plan?"
+A: Family Unlimited - 4 lines for $140/month (about $35 per line), unlimited 5G, with a new
+   account intro offer of 20% off for the first 3 months. Extra lines are $30/month.
+
+Q: "I'm going to Europe for about a week. What are my roaming options?"
+A: Two options: the International Day Pass ($10/day per line) or the International Monthly
+   Pass ($50/month, 15 GB). For a ~7-day trip the Monthly Pass is the better value, since the
+   Day Pass would cost around $70.
+
+Q: "Is there a discount for students?"
+A: Yes - Student Unlimited is $30/month with unlimited 5G, but it requires valid enrollment
+   at an accredited college or university (reverified annually).
+
+Q: "What's the difference between the International Calling Pack and a roaming pass?"
+A: The International Calling Pack ($15/month) discounts calls made FROM the US to other
+   countries. It does NOT cover usage while you are physically abroad - for that you need a
+   roaming pass (Day Pass or Monthly Pass).
+
+QUESTIONS THAT SHOULD STILL WORK (original sources - confirm you didn't break anything):
+
+Q: "My mobile data is really slow. How do I fix it?"
+A: Troubleshooting guidance from the FAQ / tickets / guide (e.g. toggle airplane mode,
+   check data limits, reset network settings) - the same as before your change.
+
+QUESTIONS THAT SHOULD BE REFUSED (out of scope):
+
+Q: "What is my current bill / balance?"
+A: A safe "I can't help with that here" type response directing the user to their account -
+   you added public plan info, not personal account data.
+
+
+WHAT TO HAND IN
+
+A screenshot or short screen recording of the AI assistant answering questions - no code
+required. Your submission should show:
+
+1. The assistant correctly answering 3-4 plan/pricing questions from the list above, grounded
+   in the plan data.
+2. The assistant still correctly answering at least one original question (FAQ / connectivity
+   / billing-type), to show the existing sources still work.
+3. (Optional) The assistant safely refusing an out-of-scope question like "I am visiting London for 3 days in May, build me a trip plan".
+
+Create a linkedin post with your learning lessons and a small demo. It will be great if you can include a video presentation as well. Example: https://www.linkedin.com/posts/suganya-g_codebasics-resumeprojectchallenge-streamlit-activity-7382246089745342466-r5iq?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAHeAToBefXXCt3hf_hHmb_-yy7lz8bBNns
+
+
+DONE WHEN
+
+- Running the app and asking a pricing question (e.g. "What's the cheapest unlimited plan?")
+  returns a correct answer drawn from data/plans.json.
+- The bot still answers its original FAQ / ticket / guide questions as well as before.
+- Questions the data does not cover (e.g. "I am visiting London for 3 days in May, build me a trip plan") still get a safe
+  "I can't answer that" type response - you are adding public plan info, not personal
+  account data.

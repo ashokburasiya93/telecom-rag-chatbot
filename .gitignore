@@ -3,6 +3,7 @@
 
 # Environments
 .venv/
+.venv314/
 .uvpython/
 __pycache__/
 *.py[cod]

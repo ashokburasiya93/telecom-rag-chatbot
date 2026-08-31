@@ -1,16 +1,17 @@
 # RAG Telecom Customer Care Chatbot
 
 A retrieval-augmented chatbot that answers Tier-1 telecom support questions — slow data,
-confusing charges, SIM and eSIM problems, roaming, call quality, account basics — grounded
-in three knowledge sources and nothing else.
+confusing charges, SIM and eSIM problems, roaming, call quality, account basics — plus
+plans, pricing and add-ons — grounded in four knowledge sources and nothing else.
 
 Built to [`PRD.md`](PRD.md).
 
 ```
-question ──▶ merged retriever ──▶ 9 source-labelled documents ──▶ prompt ──▶ Groq ──▶ streamed answer
+question ──▶ merged retriever ──▶ 15 source-labelled documents ──▶ prompt ──▶ Groq ──▶ streamed answer
               ├── faq      top-3
               ├── tickets  top-3
-              └── guides   top-3
+              ├── guides   top-3
+              └── plans    top-6
 ```
 
 ---
@@ -49,8 +50,9 @@ The first run downloads the `all-MiniLM-L6-v2` embedding model (~90 MB) and take
 | `ingest_faq.py` | `data/faq.csv` → one document per row |
 | `ingest_tickets.py` | `data/tickets.db` → one document per **resolved** ticket |
 | `ingest_guides.py` | `data/telecom_guide.pdf` → 600-char chunks, 100-char overlap |
-| `ingest_all.py` | Runs all three |
-| `retriever.py` | Fans out to all three collections in parallel, top-3 each |
+| `ingest_plans.py` | `data/plans.json` → one document per plan or add-on, plus 3 cross-plan summaries |
+| `ingest_all.py` | Runs all four |
+| `retriever.py` | Fans out to all four collections in parallel |
 | `chain.py` | Prompt + Groq LLM + LCEL chain |
 | `app.py` | Streamlit chat UI |
 | `main.py` | CLI REPL |
@@ -67,18 +69,43 @@ python ingest_faq.py
 
 # add resolved rows to data/tickets.db, then
 python ingest_tickets.py
+
+# change a price or launch a plan in data/plans.json, then
+python ingest_plans.py
 ```
 
 Re-runs are idempotent. Every document is stored under a stable id — `faq-7`,
-`ticket-TK-012`, `guide-p5-c2` — so a second run overwrites the same rows instead of
-duplicating them, and an edited answer replaces the old one in place. Pass `--reset` to
-drop a collection and rebuild it from scratch.
+`ticket-TK-012`, `guide-p5-c2`, `plan-PRE-UNLTD` — so a second run overwrites the same
+rows instead of duplicating them, and an edited answer or a repriced plan replaces the
+old one in place. Pass `--reset` to drop a collection and rebuild it from scratch — do
+that when a plan is *withdrawn*, since an id that is no longer in the JSON is not
+overwritten by a plain re-run.
 
 ## Adding a knowledge source
 
 Write an `ingest_yours.py` that returns `(documents, ids)`, then add the collection name
 to `COLLECTIONS` in `retriever.py` and a label in `SOURCE_LABELS` in `config.py`. Nothing
-else changes (NFR-06).
+else changes (NFR-06). `ingest_plans.py` is the worked example — it was added this way.
+
+### The plans source
+
+`data/plans.json` is the operator's official price list, and three things about it are
+worth knowing:
+
+**It is rendered as prose, not JSON.** `all-MiniLM-L6-v2` was trained on sentences.
+`"data_unlimited": true` embeds nowhere near "do you have an unlimited plan"; the line
+"Unlimited 5G data" does.
+
+**Three cross-plan summaries are indexed alongside the per-plan documents.** "What is
+your *cheapest* unlimited plan?" is not answerable from any single plan document —
+cheapest is a fact about the lineup. The summaries (all plans by price, unlimited plans
+compared, add-ons and roaming passes) are generated from the same JSON at ingest time, so
+they cannot drift from it. They are also what makes the bot volunteer the caveat that
+Student Unlimited is cheaper but restricted.
+
+**`plans` retrieves 6 documents, not 3** (`COLLECTION_TOP_K` in `config.py`). It is the
+one collection where a correct answer usually means weighing several documents against
+each other; three out of seventeen is not enough to compare on.
 
 ---
 
@@ -88,6 +115,24 @@ The system prompt in `chain.py` is the guardrail. It forbids answering from the 
 knowledge, forbids stating any number that is not in the retrieved context, and requires the
 bot to say plainly when it cannot answer and point to 611 or the MyTelecom app. Temperature
 is 0.
+
+Two rules exist specifically because the catalog was added:
+
+**`[PLANS]` outranks the other sources on price.** FAQ #10 still describes a legacy "EU
+Roaming Bundle at $15/day" that is not in the current catalog. Retrieval surfaces it and
+the catalog side by side, and without a precedence rule the bot quoted the withdrawn
+bundle. The prompt now treats `[PLANS]` as the dated price list and tells the model to
+drop any plan, pass or price the other sources name that the catalog does not.
+
+**Arithmetic on retrieved numbers is allowed, inventing numbers is not.** "Europe for a
+week" needs $10/day × 7 = $70 to be compared against the $50 monthly pass. The rule
+permits multiplying numbers that are in the context and still forbids producing any
+number that is not.
+
+A scope rule was added at the same time: plans, pricing, billing and technical support are
+in scope, and anything else — a travel itinerary, general recommendations — gets one
+sentence declining, plus the one relevant NovaCell action if there is one. Adding public
+pricing widened what the bot knows about, not what it is willing to be asked.
 
 Observed behaviour on the current corpus:
 
@@ -167,6 +212,7 @@ system-wide is the alternative if you prefer.
 | `faq` | `data/faq.csv` | 25 |
 | `tickets` | `data/tickets.db` | 19 |
 | `guides` | `data/telecom_guide.pdf` | 37 chunks |
+| `plans` | `data/plans.json` | 14 plans and add-ons + 3 summaries |
 
 The ticket database holds 20 rows; `TK-020` is `escalated`, not `resolved`, so it is
 excluded — an unresolved fraud case has no resolution to teach the model (FR-15).

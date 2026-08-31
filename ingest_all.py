@@ -9,14 +9,21 @@ import argparse
 
 import ingest_faq
 import ingest_guides
+import ingest_plans
 import ingest_tickets
-from config import FAQ_COLLECTION, GUIDES_COLLECTION, TICKETS_COLLECTION
+from config import (
+    FAQ_COLLECTION,
+    GUIDES_COLLECTION,
+    PLANS_COLLECTION,
+    TICKETS_COLLECTION,
+)
 from vectorstore import count, reset_collection, upsert
 
 LOADERS = (
     (FAQ_COLLECTION, ingest_faq.load_faq_documents),
     (TICKETS_COLLECTION, ingest_tickets.load_ticket_documents),
     (GUIDES_COLLECTION, ingest_guides.load_guide_documents),
+    (PLANS_COLLECTION, ingest_plans.load_plan_documents),
 )
 
 
