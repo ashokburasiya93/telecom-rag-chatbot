@@ -82,6 +82,13 @@ LLM_MODEL = os.getenv("LLM_MODEL", "qwen/qwen3.6-27b")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 REASONING_EFFORT = os.getenv("REASONING_EFFORT", "none")
 
+# --- Conversation context (FR-45, FR-50) ---------------------------------
+
+# Exchanges (a question plus its answer) carried into the next prompt. Enough
+# for "should I do that before I travel?" to resolve, short enough that a long
+# session cannot crowd the retrieved context out of the prompt.
+MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "6"))
+
 # --- UI ------------------------------------------------------------------
 
 APP_TITLE = "Telecom Care Assistant"
@@ -100,6 +107,8 @@ SAMPLE_QUESTIONS = [
     "My eSIM activation keeps failing — what should I do?",
     "My calls keep dropping. What should I do?",
     "How do I set up autopay?",
+    "I want a refund of ₹499.",
+    "I want a refund of ₹999.",
 ]
 
 ESCALATION_HINT = "call 611 or use the MyTelecom app"

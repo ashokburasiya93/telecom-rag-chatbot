@@ -2,16 +2,20 @@
 
 A retrieval-augmented chatbot that answers Tier-1 telecom support questions — slow data,
 confusing charges, SIM and eSIM problems, roaming, call quality, account basics — plus
-plans, pricing and add-ons — grounded in four knowledge sources and nothing else.
+plans, pricing and add-ons — grounded in four knowledge sources and nothing else. It can
+also cancel and refund a recent recharge, through a tool-using agent with a human
+confirmation step.
 
-Built to [`PRD.md`](PRD.md).
+Built to [`PRD.md`](PRD.md) and [`agent_PRD.md`](agent_PRD.md).
 
 ```
-question ──▶ merged retriever ──▶ 15 source-labelled documents ──▶ prompt ──▶ Groq ──▶ streamed answer
-              ├── faq      top-3
-              ├── tickets  top-3
-              ├── guides   top-3
-              └── plans    top-6
+                 ┌─ requirement_inquiry ─▶ merged retriever ─▶ 15 docs ─▶ Groq ─▶ streamed answer
+message ─▶ intent┤                          ├── faq      top-3
+                 │                          ├── tickets  top-3
+                 │                          ├── guides   top-3
+                 │                          └── plans    top-6
+                 │
+                 └─ refund_request ──────▶ refund agent ─▶ validate ─▶ confirm ─▶ simulated refund
 ```
 
 ---
@@ -58,6 +62,14 @@ The first run downloads the `all-MiniLM-L6-v2` embedding model (~90 MB) and take
 | `main.py` | CLI REPL |
 | `interaction_log.py` | Appends answers and 👍/👎 to `logs/interactions.jsonl` |
 | `setup_windows_runtime.py` | Windows-only torch runtime repair |
+| `intent.py` | Classifies each message: `requirement_inquiry` or `refund_request` |
+| `router.py` | Picks the route; a refund in flight stays in the refund route |
+| `refund_agent.py` | The LangGraph refund workflow and the two tools the LLM may call |
+| `refund_tools.py` | The four refund tools and every eligibility rule |
+| `accounts.py` | The hard-coded demo account and its two recharges |
+| `conversation.py` | Trims and shapes session history for both routes |
+| `agent_log.py` | `[Intent] …` / `[Agent] …` workflow trace |
+| `test_scenarios.py` | The agent PRD's seven demonstration scenarios, runnable |
 
 ## Updating the knowledge base
 
@@ -106,6 +118,62 @@ Student Unlimited is cheaper but restricted.
 **`plans` retrieves 6 documents, not 3** (`COLLECTION_TOP_K` in `config.py`). It is the
 one collection where a correct answer usually means weighing several documents against
 each other; three out of seventeen is not enough to compare on.
+
+---
+
+## The refund agent
+
+Built to [`agent_PRD.md`](agent_PRD.md). Every message is classified first; anything that
+is not a refund request goes down the existing pipeline untouched.
+
+```bash
+python test_scenarios.py            # the PRD's seven scenarios
+python test_scenarios.py --offline  # the five that need no API key or index
+```
+
+### What the LLM decides, and what it does not
+
+The agent is a real tool-using agent — it calls `get_user_account` and `validate_refund`
+itself — but it is not trusted with any decision that costs money:
+
+| | Decided by |
+|---|---|
+| Is this a refund request? | LLM (`intent.py`) |
+| Which account and recharges? | `get_user_account`, called by the LLM |
+| Is the refund eligible? | `validate_refund` — **code**, called by the LLM |
+| Which recharge does the amount apply to? | Code (`select_recharge`) |
+| Is ₹499 the limit, and is this over it? | Code (`refund_agent._decide`) |
+| Did the customer confirm? | Code (`interpret_confirmation`) |
+| Execute the refund / escalate | Code — `process_refund` and `submit_to_support` are **never bound to the LLM** |
+
+So a model that decides a refund looks fine, or announces that Support approved it,
+changes nothing: the reply text for every outcome is written in `refund_agent.py` from
+the tool results, and `process_refund` revalidates and rechecks the limit before it
+changes anything, no matter who called it.
+
+The amount is read out of the customer's own words by regex, not inferred — an agent that
+guesses an amount is an agent that refunds the wrong one. With no amount given, it offers
+the single refundable recharge or asks which of several; it never picks for you.
+
+### The two paths
+
+```
+≤ ₹499   validate → ask → customer confirms → process_refund → reference
+> ₹499   validate → submit_to_support → "submitted, they will review it" → end
+```
+
+There is no confirmation step above the limit, because there is nothing the customer
+could approve — the application cannot execute it either way. The reply says only that
+the request was submitted; the Support Team's review happens outside this application, so
+nothing here reports or simulates its outcome.
+
+### The demo data
+
+`accounts.py` holds one user, `user_123`, treated as if it came from an authenticated
+session — the customer is never asked for it. Two recharges: ₹499 (refundable here) and
+₹999 (goes to Support). A successful refund flips `refund_status` in that module for the
+life of the server process, which is what makes "already refunded" real rather than
+claimed. **Reset demo account** in the sidebar puts the seed back.
 
 ---
 
@@ -224,11 +292,31 @@ excluded — an unresolved fraud case has no resolution to teach the model (FR-1
 ```json
 {"event":"answer","interaction_id":"a1b2c3","question":"…","citations":["FAQ #2 — …"],"latency_s":0.47}
 {"event":"feedback","interaction_id":"a1b2c3","rating":"down"}
+{"event":"agent_step","stage":"Validation","detail":"eligible=True — Refund is eligible."}
+```
+
+Refund workflow steps also print to the console as they happen, which is the quickest way
+to watch a demo:
+
+```
+[Intent] refund_request
+[Agent] get_user_account
+[Agent] validate_refund(amount=499)
+[Validation] eligible=True — Refund is eligible.
+[Agent] awaiting_confirmation
+[User] confirmed
+[Agent] process_refund(amount=499)
+[Refund] success ref=ref_693f27
 ```
 
 ## Configuration
 
 All in `.env` (see `.env.example`) — `GROQ_API_KEY` is the only required value. Optional:
-`LLM_MODEL`, `LLM_TEMPERATURE`, `REASONING_EFFORT`, `EMBEDDING_MODEL`, `TOP_K`.
+`LLM_MODEL`, `LLM_TEMPERATURE`, `REASONING_EFFORT`, `EMBEDDING_MODEL`, `TOP_K`,
+`MAX_HISTORY_TURNS`.
+
+The refund rules are not environment settings. The ₹499 approval limit and the 7-day
+window live in `accounts.py`, because they are business rules that belong under review in
+version control, not values a deployment can quietly move.
 
 Never commit `.env`; `.gitignore` already excludes it.

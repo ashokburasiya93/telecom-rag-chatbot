@@ -1,7 +1,11 @@
 """Interactive CLI for the telecom care assistant (FR-18, FR-19).
 
+Runs the same router as the Streamlit app, so a refund request works here too —
+confirmation is typed rather than clicked.
+
 Run:  python main.py
-Type `quit` (or `exit`) to leave, `sources` to show what backed the last answer.
+Type `quit` (or `exit`) to leave, `sources` to show what backed the last answer,
+`clear` to reset the conversation and any pending refund.
 """
 
 from __future__ import annotations
@@ -39,7 +43,10 @@ def _print_banner() -> None:
     print(f"\n{APP_TITLE} — CLI")
     print(f"model: {LLM_MODEL}")
     print(f"store: {backend_note()}")
-    print("type 'quit' to exit, 'sources' to see what backed the last answer\n")
+    print(
+        "type 'quit' to exit, 'sources' to see what backed the last answer, "
+        "'clear' to start over\n"
+    )
     print("try one of these:")
     for question in SAMPLE_QUESTIONS[:4]:
         print(f"  · {question}")
@@ -49,8 +56,10 @@ def _print_banner() -> None:
 def main() -> int:
     _make_output_crash_proof()
 
+    import refund_agent
     from chain import MissingAPIKey, answer_stream
     from retriever import warm_up
+    from router import REFUND, route
 
     _print_banner()
 
@@ -58,6 +67,8 @@ def main() -> int:
     warm_up()
 
     last_docs: list = []
+    history: list[dict] = []
+    refund_pending: dict | None = None
 
     while True:
         try:
@@ -85,9 +96,52 @@ def main() -> int:
             print()
             continue
 
+        if question.lower() == "clear":
+            history = []
+            refund_pending = None
+            last_docs = []
+            print("conversation cleared\n")
+            continue
+
         started = time.perf_counter()
         try:
-            docs, stream = answer_stream(question)
+            destination = route(question, refund_pending, history)
+        except MissingAPIKey as exc:
+            print(f"\n! {exc}\n")
+            return 1
+        except Exception as exc:
+            print(f"\n! could not reach the language model: {exc}\n")
+            continue
+
+        if destination == REFUND:
+            history.append({"role": "user", "content": question})
+            try:
+                turn = refund_agent.run(
+                    question, pending=refund_pending, history=history[:-1]
+                )
+            except Exception as exc:
+                print(f"\n! refund agent failed: {exc}\n")
+                history.pop()
+                continue
+
+            refund_pending = turn.pending
+            history.append({"role": "assistant", "content": turn.reply})
+            elapsed = time.perf_counter() - started
+            print(f"\nbot > {turn.reply}")
+            print(f"\n  [refund agent · {turn.stage} · {elapsed:.1f}s]\n")
+
+            log_answer(
+                interaction_id=uuid.uuid4().hex[:12],
+                question=question,
+                answer=turn.reply,
+                citations=[],
+                latency_s=elapsed,
+                channel="cli",
+            )
+            continue
+
+        try:
+            docs, stream = answer_stream(question, history)
         except MissingAPIKey as exc:
             print(f"\n! {exc}\n")
             return 1
@@ -96,6 +150,7 @@ def main() -> int:
             continue
 
         last_docs = docs
+        history.append({"role": "user", "content": question})
         print("\nbot > ", end="", flush=True)
         chunks: list[str] = []
         try:
@@ -104,10 +159,12 @@ def main() -> int:
                 print(chunk, end="", flush=True)
         except Exception as exc:
             print(f"\n! stream failed: {exc}")
+            history.pop()
             continue
 
         elapsed = time.perf_counter() - started
         text = "".join(chunks)
+        history.append({"role": "assistant", "content": text})
         print(f"\n\n  [{len(docs)} sources · {elapsed:.1f}s · type 'sources' to list them]\n")
 
         log_answer(
