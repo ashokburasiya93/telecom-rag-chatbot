@@ -21,6 +21,11 @@ def _write(record: dict[str, Any]) -> None:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def log_event(event: str, **fields: Any) -> None:
+    """Append an arbitrary event. Used by `agent_log` for workflow steps."""
+    _write({"event": event, **fields})
+
+
 def log_answer(
     *,
     interaction_id: str,

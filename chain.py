@@ -11,8 +11,10 @@ from functools import lru_cache
 from typing import Iterator
 
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_groq import ChatGroq
+
+from conversation import as_messages
 
 from config import (
     ESCALATION_HINT,
@@ -64,12 +66,20 @@ list for anything that is a procedure.
 6. Never mention "context", "documents", "sources" or "retrieval" — just answer.
 7. Do not repeat internal notes verbatim. If the CONTEXT describes something an agent \
 or engineer did internally, translate it into what the customer should do or expect.
+8. Earlier messages in this conversation are there so you can work out what the \
+customer is referring to — "that", "it", "the second one", "before I travel". They are \
+not a source of facts. Every price, policy and step you state still has to come from \
+the CONTEXT above, even if you said something different earlier.
 """
 
 HUMAN_PROMPT = "{question}"
 
 PROMPT = ChatPromptTemplate.from_messages(
-    [("system", SYSTEM_PROMPT), ("human", HUMAN_PROMPT)]
+    [
+        ("system", SYSTEM_PROMPT),
+        MessagesPlaceholder("history"),
+        ("human", HUMAN_PROMPT),
+    ]
 ).partial(escalation_hint=ESCALATION_HINT)
 
 
@@ -100,19 +110,38 @@ def get_chain():
     return PROMPT | get_llm() | StrOutputParser()
 
 
-def answer_stream(question: str) -> tuple[list[RetrievedDoc], Iterator[str]]:
+def _payload(
+    question: str, history: list[dict] | None
+) -> tuple[dict, list[RetrievedDoc]]:
+    """Build the prompt inputs, and hand back the documents they were built from.
+
+    Retrieval runs on the question exactly as the customer typed it. Earlier
+    messages go into the prompt, never into the search (FR-49), so adding
+    conversation context cannot change which documents a question retrieves.
+    """
+    docs = retrieve(question)
+    return {
+        "context": format_context(docs),
+        "question": question,
+        "history": as_messages(history or []),
+    }, docs
+
+
+def answer_stream(
+    question: str, history: list[dict] | None = None
+) -> tuple[list[RetrievedDoc], Iterator[str]]:
     """Retrieve context, then stream the grounded answer token by token (FR-05).
 
     Returns the retrieved documents alongside the stream so the UI can render
     the Sources panel (FR-13a) next to the answer it produced.
     """
-    docs = retrieve(question)
-    payload = {"context": format_context(docs), "question": question}
+    payload, docs = _payload(question, history)
     return docs, get_chain().stream(payload)
 
 
-def answer(question: str) -> tuple[list[RetrievedDoc], str]:
+def answer(
+    question: str, history: list[dict] | None = None
+) -> tuple[list[RetrievedDoc], str]:
     """Non-streaming variant, used by tests and scripted checks."""
-    docs = retrieve(question)
-    payload = {"context": format_context(docs), "question": question}
+    payload, docs = _payload(question, history)
     return docs, get_chain().invoke(payload)

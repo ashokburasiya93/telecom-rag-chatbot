@@ -6,6 +6,9 @@ langchain-groq>=0.1.9
 langchain-huggingface>=0.0.3
 langchain-text-splitters>=0.2.0
 
+# The refund agent's workflow graph (agent PRD §10, §13).
+langgraph>=0.2.0
+
 # Vector store + local embeddings.
 # chromadb is pinned below 0.6: from 1.0 onwards it imports the OpenTelemetry
 # gRPC exporter at package import, which drags in grpcio's unsigned native
